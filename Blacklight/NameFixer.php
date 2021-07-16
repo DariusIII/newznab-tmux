@@ -1217,9 +1217,8 @@ class NameFixer
         $counter = $counted = 0;
         $timestart = now();
 
-        $query = Release::fromQuery(
-            sprintf(
-                "
+        $sql = sprintf(
+            "
 					SELECT r.id AS releases_id, r.name, r.searchname,
 						r.fromname, r.groups_id, r.categories_id,
 						GROUP_CONCAT(rf.name ORDER BY LENGTH(rf.name) DESC SEPARATOR '||') AS filename
@@ -1229,13 +1228,11 @@ class NameFixer
 					AND r.predb_id = 0
 					AND r.categories_id IN (%s)
 					AND r.isrenamed = 0
-					GROUP BY r.id
-					%s %s",
-                implode(',', Category::OTHERS_GROUP),
-                $orderby,
-                $limit
-            )
+					GROUP BY r.id",
+            implode(',', Category::OTHERS_GROUP)
         );
+        $sql .= PHP_EOL.$orderby.PHP_EOL.$limit;
+        $query = Release::fromQuery($sql);
 
         if (! empty($query)) {
             $total = $query->count();
@@ -1329,11 +1326,8 @@ class NameFixer
                     break;
 
                 //if filename has a .part001, send it back to the function to cut the next period
-                case preg_match('/\.part\d+$/', $this->_fileName):
-                    $this->_fileName = Utility::cutStringUsingLast('.', $this->_fileName, 'left', false);
-                    break;
-
                 //if filename has a .vol001, send it back to the function to cut the next period
+                case preg_match('/\.part\d+$/', $this->_fileName):
                 case preg_match('/\.vol\d+(\+\d+)?$/', $this->_fileName):
                     $this->_fileName = Utility::cutStringUsingLast('.', $this->_fileName, 'left', false);
                     break;
@@ -1436,18 +1430,22 @@ class NameFixer
             }
             $this->consoletools->header('Fixing search names'.$te.' using the predb hash.');
         }
-        $regex = 'AND (r.ishashed = 1 OR rf.ishashed = 1)';
 
         if ($cats === 3) {
-            $query = sprintf('SELECT r.id AS releases_id, r.name, r.searchname, r.categories_id, r.groups_id, '
-                .'dehashstatus, rf.name AS filename FROM releases r '
-                .'LEFT OUTER JOIN release_files rf ON r.id = rf.releases_id '
-                .'WHERE nzbstatus = 1 AND dehashstatus BETWEEN -6 AND 0 AND predb_id = 0 %s', $regex);
+            $query = <<<'Q1'
+SELECT r.id AS releases_id, r.name, r.searchname, r.categories_id, r.groups_id,
+dehashstatus, rf.name AS filename FROM releases r
+LEFT OUTER JOIN release_files rf ON r.id = rf.releases_id AND rf.ishashed = 1
+WHERE nzbstatus = 1 AND dehashstatus BETWEEN -6 AND 0 AND predb_id = 0 AND r.ishashed = 1
+Q1;
         } else {
-            $query = sprintf('SELECT r.id AS releases_id, r.name, r.searchname, r.categories_id, r.groups_id, '
-                .'dehashstatus, rf.name AS filename FROM releases r '
-                .'LEFT OUTER JOIN release_files rf ON r.id = rf.releases_id '
-                .'WHERE nzbstatus = 1 AND isrenamed = 0 AND dehashstatus BETWEEN -6 AND 0 %s %s %s', $regex, $ct, $tq);
+            $query = <<<'Q2'
+SELECT r.id AS releases_id, r.name, r.searchname, r.categories_id, r.groups_id,
+dehashstatus, rf.name AS filename FROM releases r
+LEFT OUTER JOIN release_files rf ON r.id = rf.releases_id AND rf.ishashed = 1
+WHERE nzbstatus = 1 AND isrenamed = 0 AND (dehashstatus BETWEEN -6 AND 0) AND r.ishashed = 1
+Q2
+                .' '.$ct.' '.$tq;
         }
 
         $res = Release::fromQuery($query);
